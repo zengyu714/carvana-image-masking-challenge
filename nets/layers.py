@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from torch.nn import init
 from scipy.ndimage.interpolation import zoom
 
+
 class ConvReLU(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, relu=nn.ReLU()):
         """
@@ -144,13 +145,14 @@ def get_statictis(pred, true):
     return acc, overlap
 
 
-def pre_visdom(image, label, pred, zoom_factor=(1, 1, 0.25, 0.25)):
+def pre_visdom(image, label, pred, show_size=256):
     """Prepare (optional zoom) for visualization in Visdom.
 
     Arguments:
         image: torch.cuda.FloatTensor of size [batch_size, 3, height, width]
         label: torch.cuda.FloatTensor of size [batch_size, 1, height, width]
         pred : torch.cuda.FloatTensor of size [batch_size * height * width]
+        show_size: show images with size [batch_size, 3, height, width] in visdom
 
     Returns:
         image: numpy.array of size [batch_size, 3, height, width]
@@ -158,8 +160,9 @@ def pre_visdom(image, label, pred, zoom_factor=(1, 1, 0.25, 0.25)):
         pred : numpy.array of size [batch_size, 1, height, width]
     """
     pred = pred.view_as(label).cpu().data.numpy()
-    image, label = [item.cpu().data.numpy() for item in [image, label]]
-
     pred *= 255  # make label 1 to 255 for better visualization
 
+    image, label = [item.cpu().data.numpy() for item in [image, label]]
+
+    zoom_factor = np.append([1, 1], np.divide(show_size, image.shape[-2:]))
     return [zoom(item, zoom_factor, order=1, prefilter=False) for item in [image, label, pred]]

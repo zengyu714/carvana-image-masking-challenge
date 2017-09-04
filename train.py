@@ -9,7 +9,7 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
 from inputs import DatasetFromFolder
-from nets.u_net import UNet
+from nets.u_net import UNet_1024, UNet_512, UNet_256, UNet_128
 from nets.layers import weights_init, softmax_flat, get_class_weight, get_statictis, pre_visdom, DiceLoss, NLLLoss
 from utils.easy_visdom import EasyVisdom
 from utils.checkpoints import load_checkpoints, save_checkpoints
@@ -27,7 +27,7 @@ args = parser.parse_args()
 
 
 class Configuration:
-    def __init__(self, prefix='UNet', cuda_device=args.cuda_device, from_scratch=args.from_scratch):
+    def __init__(self, prefix='UNet_1024', cuda_device=args.cuda_device, from_scratch=args.from_scratch):
         self.cuda = torch.cuda.is_available()
         self.cuda_device = cuda_device
 
@@ -55,22 +55,37 @@ class Configuration:
 
 conf = Configuration()
 
-# Dataset loader
-# --------------------------------------------------------------------------------------------------------
-
-train_data_loader = DataLoader(dataset=DatasetFromFolder('train', compress=conf.augment_size // 4),
-                               num_workers=conf.threads, batch_size=conf.batch_size, shuffle=True)
-test_data_loader = DataLoader(dataset=DatasetFromFolder('test', compress=conf.augment_size // 4),
-                              num_workers=conf.threads, batch_size=conf.batch_size, shuffle=True)
-
 
 def main():
-    if args.architecture == 0:
-        conf.prefix = 'UNet'
-        # conf.learning_rate = 1e-7  # Step 210
-        conf.learning_rate = 1e-8  # Step 305
 
-        model = UNet()
+    # GPU configuration
+    # --------------------------------------------------------------------------------------------------------
+    if conf.cuda:
+        torch.cuda.set_device(conf.cuda_device)
+        print('===> Current GPU device is', torch.cuda.current_device())
+
+    torch.manual_seed(conf.seed)
+    if conf.cuda:
+        torch.cuda.manual_seed(conf.seed)
+
+    # Set models
+    # --------------------------------------------------------------------------------------------------------
+    if args.architecture == 0:
+        conf.prefix = 'UNet_1024'
+        conf.learning_rate = 1e-6
+        model = UNet_1024()
+    elif args.architecture == 1:
+        conf.prefix = 'UNet_512'
+        conf.learning_rate = 1e-6
+        model = UNet_512()
+    elif args.architecture == 2:
+        conf.prefix = 'UNet_256'
+        conf.learning_rate = 1e-6
+        model = UNet_256()
+    elif args.architecture == 3:
+        conf.prefix = 'UNet_128'
+        conf.learning_rate = 1e-6
+        model = UNet_128()
 
     conf.generate_dirs()
 
@@ -80,6 +95,17 @@ def main():
 
     start_i = 1
     total_i = conf.epochs * conf.augment_size
+
+    # Dataset loader
+    # --------------------------------------------------------------------------------------------------------
+    conf.length = int(conf.prefix.split('_')[-1])
+
+    train_data_loader = DataLoader(
+            dataset=DatasetFromFolder('train', length=conf.length, compress=conf.augment_size // 4),
+            num_workers=conf.threads, batch_size=conf.batch_size, shuffle=True)
+    test_data_loader = DataLoader(
+            dataset=DatasetFromFolder('test', length=conf.length, compress=conf.augment_size // 4),
+            num_workers=conf.threads, batch_size=conf.batch_size, shuffle=True)
 
     # Weights
     # ----------------------------------------------------------------------------------------------------
