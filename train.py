@@ -57,7 +57,6 @@ conf = Configuration()
 
 
 def main():
-
     # GPU configuration
     # --------------------------------------------------------------------------------------------------------
     if conf.cuda:
@@ -70,21 +69,19 @@ def main():
 
     # Set models
     # --------------------------------------------------------------------------------------------------------
+    conf.learning_rate = 1e-7  # acc > 90%
+
     if args.architecture == 0:
         conf.prefix = 'UNet_1024'
-        conf.learning_rate = 1e-6
         model = UNet_1024()
     elif args.architecture == 1:
         conf.prefix = 'UNet_512'
-        conf.learning_rate = 1e-6
         model = UNet_512()
     elif args.architecture == 2:
         conf.prefix = 'UNet_256'
-        conf.learning_rate = 1e-6
         model = UNet_256()
     elif args.architecture == 3:
         conf.prefix = 'UNet_128'
-        conf.learning_rate = 1e-6
         model = UNet_128()
 
     conf.generate_dirs()

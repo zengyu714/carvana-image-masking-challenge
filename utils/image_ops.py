@@ -1,8 +1,5 @@
-import os
-
 import cv2
 import numpy as np
-from scipy import misc
 from skimage import measure
 from skimage.exposure import adjust_gamma
 from skimage.transform import warp, AffineTransform
@@ -46,7 +43,7 @@ def random_affine(image, label,
         rotation = np.random.uniform(*np.deg2rad(rotation))
 
     tform = AffineTransform(scale=scale, rotation=rotation, shear=shear, translation=translation)
-    return [warp(item, tform, mode='reflect', preserve_range=True) for item in [image, label]]
+    return [warp(item, tform, mode='wrap', preserve_range=True) for item in [image, label]]
 
 
 def random_hflip(image, label, u=0.5):
@@ -84,66 +81,12 @@ def shrink_to_bbox(*inputs):
     return outputs + [bb]
 
 
-def normalize(T):
+def normalize(im):
     """
     Normalize volume's intensity to range [0, 1], for suing image processing
     Compute global maximum and minimum cause cerebrum is relatively homogeneous
     """
-    _max = np.max(T)
-    _min = np.min(T)
-    # `T` with dtype float64
-    return (T - _min) / (_max - _min)
-
-
-def rename(root_dir='./data/base/'):
-    """Strip names from 'BMPX.bmp' to 'X.bmp"""
-
-    for dirname in os.listdir(root_dir):
-        for filename in os.listdir(os.path.join(root_dir, dirname)):
-            strip_name = filename.lstrip('BMP')
-            oldname = os.path.join(root_dir, dirname, filename)
-            newname = os.path.join(root_dir, dirname, strip_name)
-            os.rename(oldname, newname)
-
-
-def blend(image, label, alpha=0.5):
-    """"Simulate colormap `jet`."""
-
-    r = (label + 0.1) * 255 * alpha
-    b = (image + image.mean()) * (1 - alpha)
-    g = np.minimum(r, b)
-    rgb = np.dstack([r, g, b] + image * 0.3)
-    return rgb.astype(np.uint8)
-
-
-def label_areas(data_dir, save_dir='./submit/ALL/', alpha=0.5):
-    """Compute area of labels in `jet` colormap blend image and save.
-
-    Arguments:
-        data_dir: contains blend images
-        save_dir: indicate directory to save results of computed areas
-        alpha: parameter used to overlap labels and images
-        
-    Assume:
-        label is in `r` color channel, i.e. label = rgb[0]
-        
-    Return:
-        array of pairs of (image_idx, label_area) with shape [2, image_nums] 
-    """
-    get_idx = lambda name: int(name.split('_')[-1][: -4])
-    images_path = sorted([os.path.join(data_dir, p) for p in os.listdir(data_dir)],
-                         key=get_idx)
-    # Filter the empty string in a list
-    prefix = list(filter(None, data_dir.split('/')))[-1]
-    idx, areas = [], []
-    for p in images_path:
-        # Append index
-        idx.append(get_idx(p))
-        # Append areas
-        label = misc.imread(p)[..., 0]
-        bw = label > (255 * alpha)
-        areas.append(np.sum(bw))
-
-    pairs = np.array([idx, areas])
-    np.save(save_dir + prefix, pairs)
-    return pairs
+    _max = np.max(im)
+    _min = np.min(im)
+    # `im` with dtype float64
+    return (im - _min) / (_max - _min)

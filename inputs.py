@@ -1,19 +1,20 @@
+import os
 import glob
 import time
 
 import numpy as np
-from scipy.misc import imread
+from scipy.ndimage import imread
 from skimage.transform import resize, rescale
 
 import torch
 import torch.utils.data as data
 
 from utils.image_ops import random_hsv, random_affine, random_hflip
-from utils.morph_bbox import swap_format
+from utils.others import swap_format
 
 RESIZE = (1024, 1024)
 IM_SIZE = np.array([1280, 1918])
-IMAGES_PATH = sorted(glob.glob('./data/train/*.jpg'))
+IMAGES_PATH = sorted(os.listdir('./data/train/'))
 LABELS_PATH = [swap_format(i) for i in IMAGES_PATH]
 
 
@@ -27,7 +28,7 @@ class DatasetFromFolder(data.Dataset):
 
         self.train_path, self.test_path = np.split(self.data_path, [train_size])
         self.image_path = eval('self.{}_path'.format(mode))
-        self.label_path = [swap_format(p) for p in self.image_path]
+        self.label_path = [swap_format(p).replace('train', 'train_mask') for p in self.image_path]
 
         # self.bbox = np.load('./data/train_boundingbox.npy').item()
 
@@ -60,14 +61,16 @@ class DatasetFromFolder(data.Dataset):
 # ---------------------------------------------------------------------------------------------------------------------
 class InputsTest():
     def test_read_identity(self):
-        image_0 = read_identidy_bulk(to_identity(IMAGES_PATH[0]))
-        label_0 = read_identidy_bulk(to_identity(LABELS_PATH[0]))
-
-        image, label, bbox = cars_shrink_to_bbox(image_0, label_0)
-        print('Image Original shape:', image_0.shape)
+        images = read_identidy_car(to_identity(IMAGES_PATH[0]))
+        labels = read_identidy_car(to_identity(LABELS_PATH[0]), data_dir='./data/train_mask/')
+        boxes = car_boxes(images)
+        bb = boxes[0]
+        print(bb)
+        image, label = [it[bb[0]: bb[2], bb[1]: bb[3]] for it in [images[0], labels[0]]]
+        print('Image Original shape:', images[0].shape)
         print('Label Reduced shape:', label.shape)
         # 1 / 4
-        [vis.image(np.expand_dims(rescale(item, [1, 0.5, 0.5], preserve_range=True), 1)) for item in [image_0, label_0]]
+        [vis.image(rescale(item, 0.25, preserve_range=True)) for item in [image, label]]
 
     def test_data_loader(self):
         training_data_loader = data.DataLoader(dataset=DatasetFromFolder(), num_workers=4, batch_size=16, shuffle=True)
@@ -78,15 +81,16 @@ class InputsTest():
         # ------------------------------------------------------------
         # lb = torch.index_select(lb, 1, torch.LongTensor([0]))
         # ------------------------------------------------------------
-        vis.image(im.numpy(), opts=dict(title='Random selected image', caption='Shape: {}'.format(im.size())))
-        vis.image(lb.numpy(), opts=dict(title='Random selected label', caption='Shape: {}'.format(lb.size())))
+        vis.images(im.numpy(), opts=dict(title='Random selected image', caption='Shape: {}'.format(im.size())))
+        vis.images(lb.numpy(), opts=dict(title='Random selected label', caption='Shape: {}'.format(lb.size())))
 
 
 if __name__ == '__main__':
     import visdom
-    from utils.morph_bbox import read_identidy_bulk, to_identity, cars_shrink_to_bbox
+    from utils.others import read_identidy_car, to_identity
+    from utils.morph_bbox import car_boxes
 
     vis = visdom.Visdom()
     t = InputsTest()
-    # t.test_read_identity()
-    t.test_data_loader()
+    t.test_read_identity()
+    # t.test_data_loader()
