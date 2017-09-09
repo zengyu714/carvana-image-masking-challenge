@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from scipy.ndimage import imread
-from skimage.transform import rescale
+from skimage.transform import rescale, resize
 
 
 def png_to_png(mask_dir='./data/train_mask'):
@@ -19,7 +19,7 @@ def swap_format(name):
     I.e., `02159e548029_06.jpg` <==> `02159e548029_06_mask.png`
 
     Arguments
-        - fullname: either `path/to/XX_mask.png` or `path/to/XX.jpg`
+        - name: either `XX_mask.png` or `XX.jpg`
     """
     if name.endswith('.jpg'):
         return name[:-4] + '_mask.png'
@@ -52,5 +52,18 @@ def read_identidy_car(images_id, data_dir='./data/train/', scale=0.5):
             im = imread(os.path.join(data_dir, ext.format(i, j + 1)), mode='L')
             im = rescale(im, scale, mode='wrap', preserve_range=True)
             images += [im]
+
+    return np.array(images)
+
+
+def read_infer_car(ims_path, data_dir='./data/test/', size=1024):
+    if not isinstance(ims_path, (list, tuple)):
+        ims_path = [ims_path]
+
+    images = []
+    for i in ims_path:
+        im = imread(os.path.join(data_dir, i))
+        im = resize(im, (size, size), mode='wrap', preserve_range=True)
+        images += [im]
 
     return np.array(images)

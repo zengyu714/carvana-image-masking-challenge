@@ -23,40 +23,66 @@ class ConvReLU(nn.Module):
         return self.relu(self.conv(x))
 
 
-class ConvX3(nn.Module):
-    """Three serial convs with a residual connection.
-
-    Structure:
-        inputs --> ① --> ② --> ③ --> outputs
-             ↓ --> --> add --> ↑
-    """
-
-    def __init__(self, in_channels, out_channels, kernel_size=3):
-        super(ConvX3, self).__init__()
-        self.conv_1 = ConvReLU(in_channels, out_channels, kernel_size)
-        self.conv_2 = ConvReLU(out_channels, out_channels, kernel_size)
-        self.conv_3 = ConvReLU(out_channels, out_channels, kernel_size)
+class ConvBNReLU(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, relu=nn.ReLU()):
+        """
+        + Instantiate modules: conv-relu
+        + Assign them as member variables
+        """
+        super(ConvBNReLU, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels,
+                              kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.relu = relu
 
     def forward(self, x):
-        return x + self.conv_3(self.conv_2(self.conv_1(x)))
+        return self.relu(self.bn(self.conv(x)))
 
 
 class UpConcat(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3):
+    def __init__(self, in_channels, out_channels):
         super(UpConcat, self).__init__()
         # Right hand side needs `Upsample`
-        self.conv_rhs = ConvReLU(in_channels, out_channels)
-        self.conv_lhs = ConvReLU(out_channels, out_channels)
-        self.conv_fit = ConvReLU(out_channels * 2, out_channels)
-        self.conv = ConvX3(out_channels, out_channels, kernel_size)
-        self.rhs_up = nn.Sequential(nn.UpsamplingBilinear2d(scale_factor=2), nn.ReLU())
+        self.conv_fit = ConvBNReLU(in_channels + out_channels, out_channels)
+        self.rhs_up = nn.UpsamplingBilinear2d(scale_factor=2)
+
+        self.conv = nn.Sequential(ConvBNReLU(out_channels, out_channels), ConvBNReLU(out_channels, out_channels))
 
     def forward(self, lhs, rhs):
-        lhs = self.conv_lhs(lhs)
-        rhs = self.rhs_up(self.conv_rhs(rhs))
-
+        rhs = self.rhs_up(rhs)
         cat = torch.cat((lhs, rhs), dim=1)
         return self.conv(self.conv_fit(cat))
+
+
+class AtrousBlock(nn.Module):
+    """Atrous Spatial Pyramid Pooling.
+
+    Structure:
+        1 x 1 conv  --> --> --> ↓
+        3 x 3 conv (rate=1) --> --> ↓
+        3 x 3 conv (rate=3) --> --> --> concat --> 1 x 1 conv --> PReLU
+        3 x 3 conv (rate=6) --> --> ↑
+        3 x 3 conv (rate=9) --> ↑
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size=3, cat=True):
+        super(AtrousBlock, self).__init__()
+        self.conv_1r1 = nn.Conv2d(in_channels, out_channels, 1)
+        self.conv_3r1 = nn.Conv2d(in_channels, out_channels, kernel_size, padding=1, dilation=1)
+        self.conv_3r3 = nn.Conv2d(in_channels, out_channels, kernel_size, padding=3, dilation=3)
+        self.conv_3r6 = nn.Conv2d(in_channels, out_channels, kernel_size, padding=6, dilation=6)
+        self.conv_3r9 = nn.Conv2d(in_channels, out_channels, kernel_size, padding=9, dilation=9)
+
+        self.cat = cat  # if cat: in_channels = 1*4 + 1 = 5, else sum: in_channels = 0*4 + 1 = 1
+        self.conv = ConvReLU((cat * 4 + 1) * out_channels, out_channels, kernel_size=1, padding=0)
+
+    def forward(self, x):
+        bulk = [self.conv_1r1(x), self.conv_3r1(x), self.conv_3r3(x), self.conv_3r6(x), self.conv_3r9(x)]
+        if self.cat:
+            out = torch.cat(bulk, dim=1)
+        else:
+            out = sum(bulk)
+        return self.conv(out)
 
 
 class NLLLoss(nn.Module):
@@ -102,6 +128,19 @@ def get_class_weight(data_loader):
     weights = [(label == m).mean() for m in marks]
     # Inverse to rescale weights
     return 1 / torch.FloatTensor(weights)
+
+
+def avg_class_weight(data_loader, avg_size=4):
+    """Get average class weights.
+
+    Return:
+        A Tensor consists [background_weight, *foreground_weight]
+    """
+    weights = get_class_weight(data_loader)
+    for i in range(avg_size - 1):
+        weights += get_class_weight(data_loader)
+
+    return weights.div(avg_size)
 
 
 def softmax_flat(outputs, targets):

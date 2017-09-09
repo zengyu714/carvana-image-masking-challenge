@@ -33,17 +33,18 @@ def random_hsv(image,
 
 
 def random_affine(image, label,
-                  scale_limit=(0.9, 1.1), trans_limit=(-0.0625, 0.0625), shear=None, rotation=None):
+                  scale_limit=(0.9, 1.1), translation=(-0.0625, 0.0625), shear=None, rotation=None):
     scale = np.random.uniform(*scale_limit, size=2)
-    translation = np.random.uniform(*np.multiply(image.shape[:-1], trans_limit), size=2)
 
+    if translation is not None:
+        translation = np.random.uniform(*np.multiply(image.shape[:-1], translation), size=2)
     if shear is not None:
         shear = np.random.uniform(*np.deg2rad(shear))
     if rotation is not None:
         rotation = np.random.uniform(*np.deg2rad(rotation))
 
     tform = AffineTransform(scale=scale, rotation=rotation, shear=shear, translation=translation)
-    return [warp(item, tform, mode='wrap', preserve_range=True) for item in [image, label]]
+    return [warp(item, tform, mode='edge', preserve_range=True) for item in [image, label]]
 
 
 def random_hflip(image, label, u=0.5):

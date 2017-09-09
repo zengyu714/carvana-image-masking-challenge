@@ -35,7 +35,7 @@ def car_boxes(images):
 
         boxes[i] = regionprops(label(chull))[0].bbox
 
-    return np.vstack([boxes, boxes]).astype(int)  # [16, 4]
+    return np.vstack([boxes, boxes])  # [16, 4]
 
 
 def save_boundingbox(mode='train'):
@@ -50,8 +50,8 @@ def save_boundingbox(mode='train'):
         # 2-d slice: (bb[0]: bb[2], bb[1]: bb[3])
         boxes = car_boxes(images)
         for j in range(16):
-            name = i + '_' + str(j).zfill(2) + '.jpg'
-            saved_boxes[name] = boxes[j] / scale
+            name = i + '_' + str(j + 1).zfill(2) + '.jpg'  # 01 ~ 16
+            saved_boxes[name] = (boxes[j] / scale).astype(int)
     np.save('../data/morph_' + mode + '_boundingbox', saved_boxes)
 
 

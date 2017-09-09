@@ -8,14 +8,15 @@ import torch.optim as optim
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
-from inputs import DatasetFromFolder
-from nets.u_net import UNet_1024, UNet_512, UNet_256, UNet_128
-from nets.layers import weights_init, softmax_flat, get_class_weight, get_statictis, pre_visdom, DiceLoss, NLLLoss
+from inputs import CarDataset
+from configuration import Configuration, exp_lr_scheduler
+from nets.u_net import UNet_1024, UNet_512, UNet_256, UNet_128, UNetxBN_128
+from nets.atrous import Atrous_256
+from nets.layers import weights_init, softmax_flat, avg_class_weight, get_statictis, pre_visdom, DiceLoss, NLLLoss
 from utils.easy_visdom import EasyVisdom
 from utils.checkpoints import load_checkpoints, save_checkpoints
 
 parser = argparse.ArgumentParser(description='Carvana Image Masking Challenge')
-
 parser.add_argument('-n', '--from-scratch', action='store_true',
                     help='train model from scratch')
 parser.add_argument('-g', '--cuda-device', type=int, default=0,
@@ -24,36 +25,7 @@ parser.add_argument('-a', '--architecture', type=int, default=0,
                     help='0 ==> AtrousNext, 1 ==> DualPath')
 
 args = parser.parse_args()
-
-
-class Configuration:
-    def __init__(self, prefix='UNet_1024', cuda_device=args.cuda_device, from_scratch=args.from_scratch):
-        self.cuda = torch.cuda.is_available()
-        self.cuda_device = cuda_device
-
-        self.batch_size = 4
-        self.epochs = 20
-        self.grad_acc_num = 8
-        self.augment_size = 100
-        self.train_size = 4000
-        self.test_size = 1088
-        self.learning_rate = 1e-6
-        self.seed = 714
-        self.threads = 4
-        self.resume_step = -1
-        self.from_scratch = from_scratch
-        self.prefix = prefix
-
-    def generate_dirs(self):
-        self.result_dir = os.path.join('./results', self.prefix)
-        self.checkpoint_dir = os.path.join('./checkpoints', self.prefix)
-        # for d in [self.subdir, self.result_dir, self.checkpoint_dir]:
-        #     if not os.path.exists(d):
-        #         os.makedirs(d)
-        [os.makedirs(d) for d in [self.result_dir, self.checkpoint_dir] if not os.path.exists(d)]
-
-
-conf = Configuration()
+conf = Configuration(prefix='UNet_1024', cuda_device=args.cuda_device, from_scratch=args.from_scratch)
 
 
 def main():
@@ -69,7 +41,7 @@ def main():
 
     # Set models
     # --------------------------------------------------------------------------------------------------------
-    conf.learning_rate = 1e-7  # acc > 90%
+    conf.learning_rate = 1e-4  # acc > 90%
 
     if args.architecture == 0:
         conf.prefix = 'UNet_1024'
@@ -83,6 +55,9 @@ def main():
     elif args.architecture == 3:
         conf.prefix = 'UNet_128'
         model = UNet_128()
+    elif args.architecture == 5:
+        conf.prefix = 'Atrous_256'
+        model = Atrous_256()
 
     conf.generate_dirs()
 
@@ -98,10 +73,12 @@ def main():
     conf.length = int(conf.prefix.split('_')[-1])
 
     train_data_loader = DataLoader(
-            dataset=DatasetFromFolder('train', length=conf.length, compress=conf.augment_size // 4),
+            dataset=CarDataset('train', use_bbox=conf.use_bbox, length=conf.length,
+                               compress=conf.augment_size // 4),
             num_workers=conf.threads, batch_size=conf.batch_size, shuffle=True)
     test_data_loader = DataLoader(
-            dataset=DatasetFromFolder('test', length=conf.length, compress=conf.augment_size // 4),
+            dataset=CarDataset('test', use_bbox=conf.use_bbox, length=conf.length,
+                               compress=conf.augment_size // 4),
             num_workers=conf.threads, batch_size=conf.batch_size, shuffle=True)
 
     # Weights
@@ -114,13 +91,13 @@ def main():
 
     # Optimizer
     # ----------------------------------------------------------------------------------------------------
-    optimizer = optim.Adam(model.parameters(), lr=conf.learning_rate)
+    optimizer = optim.RMSprop(model.parameters(), lr=conf.learning_rate)
     print('===> Number of params: {}'.format(sum([p.data.nelement() for p in model.parameters()])))
     print('---> Learning rate: {} '.format(conf.learning_rate))
 
     # Loss
     # ----------------------------------------------------------------------------------------------------
-    class_weight = get_class_weight(test_data_loader)
+    class_weight = avg_class_weight(test_data_loader)
     print('---> Rescaled class weights: {}'.format(class_weight.numpy().T))
     if conf.cuda:
         class_weight = class_weight.cuda()
@@ -204,9 +181,11 @@ def main():
 
         return (avg_loss, avg_acc, avg_dice, *pre_visdom(image, label, pred))
 
+    best_result = 0
     for i in range(start_i, total_i + 1):
-        # `results` contains [loss, acc, dice]
+        optimizer = exp_lr_scheduler(optimizer, i, init_lr=conf.learning_rate, lr_decay_epoch=conf.lr_decay_epoch)
 
+        # `results` contains [loss, acc, dice]
         *train_results, train_image, train_label, train_pred = train()
         *val_results, val_image, val_label, val_pred = validate()
 
@@ -222,7 +201,9 @@ def main():
 
         # Save checkpoints
         if i % 5 == 0:
-            save_checkpoints(model, conf.checkpoint_dir, i, conf.prefix)
+            is_best = val_results[-1] > best_result
+            best_result = max(val_results[-1], best_result)
+            save_checkpoints(model, conf.checkpoint_dir, i, conf.prefix, is_best=is_best)
             # np.load('path/to/').item()
             np.save(os.path.join(conf.result_dir, 'results_dict.npy'), ev.results_dict)
 
