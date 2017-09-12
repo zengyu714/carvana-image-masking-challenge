@@ -77,23 +77,29 @@ def save_checkpoints(model, checkpoint_dir, step, prefix='Untitled_', is_best=Fa
 
 
 def best_checkpoints(results_dir, checkpoint_dir, keys=['val_dice_overlap']):
-    """Return the path of the best checkpoint.
+    """Return the path of the best checkpoint. Typically is 'Not_Important_best.pth'
+    If not exist, compute from rest checkpoints according to given keys.
     
     Assume:
         checkpoint's format is 'Not_Important_123.pth'
     """
-    checkpoints = os.listdir(checkpoint_dir)
 
-    # '123' == '123.pth'[:-4] == ['Not', 'Important', '123.pth'][-1][:-4] == cp.split('_')[-1][:-4]
-    resume_steps = [int(cp.split('_')[-1][:-4]) for cp in checkpoints]
+    checkpoints = [os.path.join(checkpoint_dir, p) for p in os.listdir(checkpoint_dir) if 'best' not in p]
 
-    # prefix == 'Not_Important_{}.pth' == 'Not_Important' + '_{}.pth'
-    prefix = '_'.join(checkpoints[0].split('_')[: -1]) + '_{}.pth'
+    # pattern == 'Not_Important_{}.pth' == 'Not_Important' + '_{}.pth'
+    pattern = '_'.join(checkpoints[0].split('_')[: -1]) + '_{}.pth'
+    best = pattern.format('best')
 
-    results_dict = np.load(os.path.join(results_dir, 'results_dict.npy')).item()
-    selected_results = np.array([results_dict[key] for key in keys])
-    sum_results = {step: selected_results[:, step - 1].sum() for step in resume_steps
-                   if step > 0.7 * max(resume_steps)}
+    if os.path.isfile(best):
+        return best
+    else:
+        # '123' == '123.pth'[:-4] == ['Not', 'Important', '123.pth'][-1][:-4] == cp.split('_')[-1][:-4]
+        resume_steps = [int(cp.split('_')[-1][:-4]) for cp in checkpoints]
 
-    best_checkpoints_step = sorted(sum_results, key=sum_results.get)[-1]
-    return os.path.join(checkpoint_dir, prefix.format(best_checkpoints_step))
+        results_dict = np.load(os.path.join(results_dir, 'results_dict.npy')).item()
+        selected_results = np.array([results_dict[key] for key in keys])
+        sum_results = {step: selected_results[:, step - 1].sum() for step in resume_steps
+                       if step > 0.7 * max(resume_steps)}
+
+        best_checkpoints_step = sorted(sum_results, key=sum_results.get)[-1]
+        return pattern.format(best_checkpoints_step)

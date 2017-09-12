@@ -14,13 +14,13 @@ class Configuration:
         self.cuda = torch.cuda.is_available()
         self.cuda_device = cuda_device
 
-        self.batch_size = 4
-        self.epochs = 10
+        self.batch_size = 16
         self.grad_acc_num = 8
+        self.epochs = 30
         self.augment_size = 100
         self.train_size = 4000
         self.test_size = 1088
-        self.learning_rate = 1e-6
+        self.learning_rate = 1e-4
         self.lr_decay_epoch = 100
         self.seed = 714
         self.threads = 4
@@ -36,16 +36,3 @@ class Configuration:
         #     if not os.path.exists(d):
         #         os.makedirs(d)
         [os.makedirs(d) for d in [self.result_dir, self.checkpoint_dir] if not os.path.exists(d)]
-
-
-def exp_lr_scheduler(optimizer, epoch, init_lr=0.0001, lr_decay_epoch=100):
-    """Decay learning rate by a factor of 0.1 every lr_decay_epoch epochs."""
-    lr = init_lr * (0.1 ** (epoch // lr_decay_epoch))
-
-    if epoch % lr_decay_epoch == 0:
-        print('===> ===> ===> Learning rate is set to {}'.format(lr))
-
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
-
-    return optimizer

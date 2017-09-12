@@ -1,10 +1,12 @@
-import numpy as  np
+import numpy as np
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from torch.nn import init
+from torch.autograd import Variable
+
 from scipy.ndimage.interpolation import zoom
 
 
@@ -43,10 +45,9 @@ class UpConcat(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(UpConcat, self).__init__()
         # Right hand side needs `Upsample`
-        self.conv_fit = ConvBNReLU(in_channels + out_channels, out_channels)
         self.rhs_up = nn.UpsamplingBilinear2d(scale_factor=2)
-
-        self.conv = nn.Sequential(ConvBNReLU(out_channels, out_channels), ConvBNReLU(out_channels, out_channels))
+        self.conv_fit = ConvReLU(in_channels + out_channels, out_channels)
+        self.conv = nn.Sequential(ConvReLU(out_channels, out_channels), ConvReLU(out_channels, out_channels))
 
     def forward(self, lhs, rhs):
         rhs = self.rhs_up(rhs)
@@ -91,7 +92,23 @@ class NLLLoss(nn.Module):
         self.nll_loss = nn.NLLLoss2d(weight, size_average)
 
     def forward(self, outputs, targets):
-        return self.nll_loss(F.log_softmax(outputs), targets.long().squeeze())
+        """
+        Arguments:
+            outputs: Variable torch.cuda.FloatTensor, maybe tuple (multi-loss)
+            targets: Variable torch.cuda.FloatTensor
+        """
+        if not isinstance(outputs, tuple):
+            return self.nll_loss(F.log_softmax(outputs), targets.long().squeeze())
+
+        loss = []  # multi-loss
+        targets = targets.cpu().data.numpy()
+        for factor, output in enumerate(outputs):
+            zoom_factor = np.repeat([1, 1.0 / (pow(2, factor))], 2)
+            target = zoom(targets, zoom_factor, order=1, prefilter=False)
+            target = Variable(torch.from_numpy(target)).cuda().long().squeeze()  # convert back to cuda variable
+
+            loss.append(self.nll_loss(F.log_softmax(output), target))
+        return sum(loss)
 
 
 # TODO: weighted dice loss
@@ -100,11 +117,13 @@ class DiceLoss(nn.Module):
         super(DiceLoss, self).__init__()
 
     def forward(self, pred, true):
-        # `dim = 0` for Tensor result
-        intersection = torch.sum(pred * true, 0)
-        union = torch.sum(pred * pred, 0) + torch.sum(true * true, 0)
+        smooth = 1.  # (dim = )0 for Tensor result
+        intersection = torch.sum(pred * true, 0) + smooth
+        union = torch.sum(pred, 0) + torch.sum(true, 0) + smooth
         dice = 2.0 * intersection / union
-        return 1 - torch.clamp(dice, 0.0, 1.0 - 1e-7)
+        return 1 - dice
+        # union = torch.sum(pred * pred, 0) + torch.sum(true * true, 0) + smooth
+        # return 1 - torch.clamp(dice, 0.0, 1.0 - 1e-7)
 
 
 def weights_init(net):
@@ -143,18 +162,22 @@ def avg_class_weight(data_loader, avg_size=4):
     return weights.div(avg_size)
 
 
-def softmax_flat(outputs, targets):
+def flatten(outputs, targets, activation=F.softmax):
     """
     Arguments:
         outputs: [batch_size, 2, height, width] (torch.cuda.FloatTensor)
         targets: [batch_size, 1, height, width] (torch.cuda.FloatTensor)
+        activation: according to loss function
 
     Return:
         pred: FloatTensor {0.0, 1.0} with shape [batch_size, (1), height, width]
         true: FloatTensor {0.0, 1.0} with shape [batch_size, (1), height, width]
     """
+    if isinstance(outputs, tuple):
+        outputs = outputs[0]
+
     outputs = outputs.permute(0, 2, 3, 1).contiguous()
-    prob = F.softmax(outputs.view(-1, 2))
+    prob = activation(outputs.view(-1, 2))
 
     pred = prob.max(1)[1].float()
     true = targets.view(-1)

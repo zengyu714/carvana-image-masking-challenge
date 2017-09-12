@@ -1,5 +1,8 @@
 import cv2
 import numpy as np
+import pydensecrf.densecrf as dcrf
+
+from pydensecrf.utils import unary_from_labels
 from skimage import measure
 from skimage.exposure import adjust_gamma
 from skimage.transform import warp, AffineTransform
@@ -53,6 +56,22 @@ def random_hflip(image, label, u=0.5):
         label = cv2.flip(label, 1)
 
     return image, label
+
+
+def dense_crf(im, mask):
+    h, w = mask.shape[:2]
+
+    d = dcrf.DenseCRF2D(w, h, 2)  # width, height, n-classes
+    U = unary_from_labels(mask, 2, gt_prob=0.95, zero_unsure=False)
+    d.setUnaryEnergy(U)
+
+    d.addPairwiseGaussian(sxy=30, compat=3)
+    d.addPairwiseBilateral(sxy=3, srgb=20, rgbim=im, compat=10)
+
+    Q = d.inference(3)
+    Q = np.argmax(np.array(Q), axis=0).reshape((h, w))
+
+    return Q
 
 
 def shrink_to_bbox(*inputs):

@@ -4,30 +4,24 @@ import pandas as pd
 
 from tqdm import tqdm
 from scipy.misc import imread
-from skimage.transform import resize
+from skimage.transform import resize, rescale
 
-import visdom
 import torch
 from torch.autograd import Variable
+from torch.utils.data import DataLoader
 
-from utils.others import read_infer_car
-from utils.checkpoints import best_checkpoints
-from nets.u_net import UNet_1024, UNet_512, UNet_256, UNet_128
+from inputs import SubmitCarDataset
+from utils.image_ops import dense_crf
+from nets.u_net import UNet_1024
+from nets.atrous import Atrous_1024
 
-# file
-TRAIN_MASKS_CSV = './data/train_masks.csv'
-TRAIN_MASKS_DIR = './data/train_masks/'
-TRAIN_MASKS_PATH = [os.path.join(TRAIN_MASKS_DIR, p) for p in os.listdir(TRAIN_MASKS_DIR)]
-TRAIN_MASKS_DEMO = TRAIN_MASKS_PATH[0]
-
-MODEL = 'UNet_128'
-INPUT_SIZE = int(MODEL.split('_')[-1])
+INPUT_SIZE = (1024, 1024)  # [int(MODEL.split('_')[-1])] * 2
 IMAGE_SIZE = (1280, 1918)
+BATCH_SIZE = 16
 
-model = eval(MODEL)()
+import visdom
 
-torch.cuda.set_device(0)
-model = model.cuda().eval()
+vis = visdom.Visdom()
 
 
 def rle_encode(mask):
@@ -37,40 +31,65 @@ def rle_encode(mask):
     return ' '.join(str(r) for r in res)
 
 
-def submit():
-    subdir = './{}/' + MODEL + '/'
-    results_dir, checkpoint_dir = [subdir.format(p) for p in ['results', 'checkpoints']]
-    best_path = best_checkpoints(results_dir, checkpoint_dir, keys=['val_dice_overlap'])
+def rle_encode_faster(mask):
+    """Reference: https://www.kaggle.com/stainsby/fast-tested-rle"""
+    inds = mask.flatten()
+    runs = np.where(inds[1:] != inds[:-1])[0] + 2
+    runs[1::2] = runs[1::2] - runs[:-1:2]
+    rle = ' '.join([str(r) for r in runs])
+    return rle
+
+
+def submit(model_name='UNet_1024', device_id=1, use_crf=False):
+    torch.cuda.set_device(device_id)
+
+    model = eval(model_name)()  # say, 'UNet_1024'
+    model = model.cuda().eval()
+
+    best_path = 'checkpoints/{}/{}_best.pth'.format(model_name, model_name)
     print('===> Loading model from {}...'.format(best_path))
 
     best_model = torch.load(best_path)
     model.load_state_dict(best_model)
 
-    ims_path = sorted(os.listdir('./data/test/'))
-    batch_size = 2
-    div_path = [ims_path[x: x + batch_size] for x in range(0, len(ims_path), batch_size)]
+    submit_dataset = SubmitCarDataset()
+    dataloader = DataLoader(submit_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=4)
 
     rles = []
     names = []
-    for i in tqdm(div_path):
-        # Read data
-        images = read_infer_car(list(i), size=INPUT_SIZE)  # convert ndarray to list
-        images = torch.from_numpy(images.transpose(0, 3, 1, 2))
-        images = Variable(images, volatile=True).float().cuda()
-
-        # Infer
-        output = model(images)
+    for i_batch, (im_batch, x_batch, name_batch) in tqdm(enumerate(dataloader),
+                                                         total=len(submit_dataset) // BATCH_SIZE, unit='batch'):
+        x_batch = Variable(x_batch, volatile=True).float().cuda()
+        output = model(x_batch)
 
         pred = output.data.max(1)[1]
         pred = pred.cpu().numpy()
 
         for j, mask in enumerate(pred):
-            mask = (resize(mask, IMAGE_SIZE, preserve_range=True) > 0.5).astype(int)
-            rles += [rle_encode(mask)]
-            names += [i[j]]
+            im = im_batch[j].numpy()
+            mask = (resize(mask, IMAGE_SIZE, preserve_range=True) > 0.5).astype(np.uint8)
 
-    df = pd.DataFrame({'img': names, 'rle_mask': rles})
-    df.to_csv('submit/submission.csv.gz', index=False, compression='gzip')
+            if use_crf:
+                mask = dense_crf(im, mask)
+                # vis.image(rescale(mask, 0.25, preserve_range=True), opts=dict(title='CRF'))
+            # C x H x W
+            # vis.image(rescale(im, 0.25, preserve_range=True).transpose(2, 0, 1), opts=dict(title='IM'))
+            # vis.image(rescale(mask, 0.25, preserve_range=True), opts=dict(title='ORI'))
+
+            rles.append(rle_encode_faster(mask))
+            names.append(name_batch[j])
+
+        if i_batch % 512 == 0:
+            # Save in case
+            df = pd.DataFrame({'img': names, 'rle_mask': rles})
+            df.to_csv('submit/submission_{}_{}.csv.gz'.format(model_name, i_batch), index=False, compression='gzip')
+
+
+# file
+TRAIN_MASKS_CSV = 'data/train_masks.csv'
+TRAIN_MASKS_DIR = 'data/train_masks/'
+TRAIN_MASKS_PATH = [os.path.join(TRAIN_MASKS_DIR, p) for p in os.listdir(TRAIN_MASKS_DIR)]
+TRAIN_MASKS_DEMO = TRAIN_MASKS_PATH[0]
 
 
 def validate_rle(mask_csv, mask_path=TRAIN_MASKS_DEMO):
@@ -82,7 +101,7 @@ def validate_rle(mask_csv, mask_path=TRAIN_MASKS_DEMO):
 
     true = mask_csv[mask_csv['img'] == index]['rle_mask']
     mask = imread(mask_path, mode='L').flatten() > 127
-    pred = rle_encode(mask)
+    pred = rle_encode_faster(mask)
     assert (true == pred).bool(), 'Run-length encoding fails...'
 
 
@@ -94,5 +113,6 @@ def validate_rle_timeit():
 
 
 if __name__ == '__main__':
-    submit()
+    # submit(model_name='UNet_1024', device_id=2)
+    submit(model_name='Atrous_1024', device_id=3)
     # validate_rle_timeit()

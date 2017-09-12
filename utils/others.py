@@ -54,16 +54,3 @@ def read_identidy_car(images_id, data_dir='./data/train/', scale=0.5):
             images += [im]
 
     return np.array(images)
-
-
-def read_infer_car(ims_path, data_dir='./data/test/', size=1024):
-    if not isinstance(ims_path, (list, tuple)):
-        ims_path = [ims_path]
-
-    images = []
-    for i in ims_path:
-        im = imread(os.path.join(data_dir, i))
-        im = resize(im, (size, size), mode='wrap', preserve_range=True)
-        images += [im]
-
-    return np.array(images)
