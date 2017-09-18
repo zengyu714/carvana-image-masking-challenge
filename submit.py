@@ -12,12 +12,8 @@ from torch.utils.data import DataLoader
 
 from inputs import SubmitCarDataset
 from utils.image_ops import dense_crf
-from nets.u_net import UNet_1024
-from nets.atrous import Atrous_1024
-
-INPUT_SIZE = (1024, 1024)  # [int(MODEL.split('_')[-1])] * 2
-IMAGE_SIZE = (1280, 1918)
-BATCH_SIZE = 16
+from nets.u_net import UNet_1024, UNet_128, DeepUNet_128
+from nets.atrous import Atrous_1024, AtrousMultiLoss_1024, Atrous_128
 
 import visdom
 
@@ -40,20 +36,18 @@ def rle_encode_faster(mask):
     return rle
 
 
-def submit(model_name='UNet_1024', device_id=1, use_crf=False):
+def submit(model, model_name, device_id=1, use_crf=False):
     torch.cuda.set_device(device_id)
 
-    model = eval(model_name)()  # say, 'UNet_1024'
-    model = model.cuda().eval()
-
     best_path = 'checkpoints/{}/{}_best.pth'.format(model_name, model_name)
+    best_model = torch.load(best_path)
     print('===> Loading model from {}...'.format(best_path))
 
-    best_model = torch.load(best_path)
+    model = model.cuda().eval()
     model.load_state_dict(best_model)
 
-    submit_dataset = SubmitCarDataset()
-    dataloader = DataLoader(submit_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=4)
+    submit_dataset = SubmitCarDataset(input_size=INPUT_SIZE)
+    dataloader = DataLoader(submit_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
 
     rles = []
     names = []
@@ -61,6 +55,8 @@ def submit(model_name='UNet_1024', device_id=1, use_crf=False):
                                                          total=len(submit_dataset) // BATCH_SIZE, unit='batch'):
         x_batch = Variable(x_batch, volatile=True).float().cuda()
         output = model(x_batch)
+        if isinstance(output, (tuple, list)):
+            output = output[0]
 
         pred = output.data.max(1)[1]
         pred = pred.cpu().numpy()
@@ -79,10 +75,15 @@ def submit(model_name='UNet_1024', device_id=1, use_crf=False):
             rles.append(rle_encode_faster(mask))
             names.append(name_batch[j])
 
-        if i_batch % 512 == 0:
-            # Save in case
-            df = pd.DataFrame({'img': names, 'rle_mask': rles})
-            df.to_csv('submit/submission_{}_{}.csv.gz'.format(model_name, i_batch), index=False, compression='gzip')
+            # if i_batch % 512 == 0:
+            #     # Save in case
+            #     df = pd.DataFrame({'img': names, 'rle_mask': rles})
+            #     df.to_csv('submit/submission_{}_{}.csv.gz'.format(model_name, i_batch),
+            #                index=False, compression='gzip')
+
+    # Save all
+    df = pd.DataFrame({'img': names, 'rle_mask': rles})
+    df.to_csv('submit/submission_{}_{}.csv.gz'.format(model_name, i_batch), index=False, compression='gzip')
 
 
 # file
@@ -113,6 +114,13 @@ def validate_rle_timeit():
 
 
 if __name__ == '__main__':
-    # submit(model_name='UNet_1024', device_id=2)
-    submit(model_name='Atrous_1024', device_id=3)
+    model = DeepUNet_128()
+    model_name = 'DeepUNet_128'
+    INPUT_SIZE = [int(model_name.split('_')[-1])] * 2
+    IMAGE_SIZE = (1280, 1918)
+    BATCH_SIZE = 16
+
+    submit(model, model_name, device_id=3)
+
+    # -----------------------------------------------------------
     # validate_rle_timeit()

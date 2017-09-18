@@ -8,15 +8,16 @@ import torch.optim as optim
 
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from inputs import CarDataset
 from configuration import Configuration
-from nets.u_net import UNet_1024, UNet_512, UNet_256, UNet_128, UNetReLU_128, UNetShallow_128, UNetMultiLoss_128
-from nets.atrous import Atrous_256, Atrous_1024
-from nets.layers import weights_init, flatten, avg_class_weight, get_statictis, pre_visdom, DiceLoss, NLLLoss
+from nets.u_net import DeepUNet_128, DeepUMLs_128, DeepUNet_HD, DeepUMLs_HD
+from nets.atrous import DeepAtrous_128, DeepAtrous_HD
+from nets.resnet import ResNeXt_128, DualPath_128
+from nets.layers import weights_init, active_flatten, multi_size, avg_class_weight, get_statictis, pre_visdom, \
+    DiceLoss, NLLLoss
 from utils.easy_visdom import EasyVisdom
-from utils.lr_scheduler import ReduceLROnPlateau
+from utils.lr_scheduler import auto_lr_scheduler, step_lr_scheduler
 from utils.checkpoints import load_checkpoints, save_checkpoints
 
 parser = argparse.ArgumentParser(description='Carvana Image Masking Challenge')
@@ -32,67 +33,60 @@ conf = Configuration(prefix='UNet_1024', cuda_device=args.cuda_device, from_scra
 
 
 def main():
-    # GPU configuration
+    # GPU (Default) configuration
     # --------------------------------------------------------------------------------------------------------
-    if conf.cuda:
-        torch.cuda.set_device(conf.cuda_device)
-        print('===> Current GPU device is', torch.cuda.current_device())
+    assert conf.cuda, 'Use GPUs default, check cuda available'
 
-    torch.manual_seed(conf.seed)
-    if conf.cuda:
-        torch.cuda.manual_seed(conf.seed)
+    torch.cuda.manual_seed(conf.seed)
+    torch.cuda.set_device(conf.cuda_device)
+    print('===> Current GPU device is', torch.cuda.current_device())
 
     # Set models
     # --------------------------------------------------------------------------------------------------------
     if args.architecture == 0:
-        conf.prefix = 'UNet_1024'
-        conf.batch_size = 8
-        model = UNet_1024()
+        conf.prefix = 'DeepUNet_HD'
+        conf.input_size = (1280, 1918)
+        model = DeepUNet_HD()
     elif args.architecture == 1:
-        conf.prefix = 'UNet_512'
-        model = UNet_512()
+        conf.prefix = 'DeepAtrous_HD'
+        conf.input_size = (1280, 1918)
+        model = DeepAtrous_HD()
     elif args.architecture == 2:
-        conf.prefix = 'UNet_256'
-        model = UNet_256()
+        conf.prefix = 'DeepUNet_128'
+        model = DeepUNet_128()
     elif args.architecture == 3:
-        conf.prefix = 'UNet_128'
-        model = UNet_128()
+        conf.prefix = 'DeepAtrous_128'
+        model = DeepAtrous_128()
+
     elif args.architecture == 4:
-        conf.prefix = 'Atrous_1024'
-        conf.batch_size = 8
-        model = Atrous_1024()
+        conf.prefix = 'ResNeXt_128'
+        model = ResNeXt_128()
     elif args.architecture == 5:
-        conf.prefix = 'Atrous_256'
-        model = Atrous_256()
-    elif args.architecture == 6:
-        conf.prefix = 'UNetShallow_128'
-        model = UNetShallow_128()
-    elif args.architecture == 7:
-        conf.prefix = 'UNetMultiLoss_128'
-        model = UNetMultiLoss_128()
-    elif args.architecture == 8:
-        conf.prefix = 'UNetLeaky_128'
-        model = UNetReLU_128(act=nn.LeakyReLU())
+        conf.prefix = 'DualPath_128'
+        model = DualPath_128()
 
     conf.generate_dirs()
 
-    if conf.cuda:
-        model = model.cuda()
+    model = model.cuda()
     print('===> Building {}...'.format(conf.prefix))
+    print('---> Batch size: {}'.format(conf.batch_size))
 
     start_i = 1
     total_i = conf.epochs * conf.augment_size
 
     # Dataset loader
     # --------------------------------------------------------------------------------------------------------
-    conf.length = int(conf.prefix.split('_')[-1])
+    if conf.input_size is None:
+        conf.input_size = tuple([int(conf.prefix.split('_')[-1])] * 2)
+    print('---> Input image size: {}'.format(conf.input_size))
+
     # actual epochs == conf.augment_size * conf.epochs / compress = 100 * 10 / (100 / 5) =  50
     train_data_loader = DataLoader(
-            dataset=CarDataset('train', use_bbox=conf.use_bbox, length=conf.length,
+            dataset=CarDataset('train', use_bbox=conf.use_bbox, input_size=conf.input_size,
                                compress=conf.augment_size // 5),
             num_workers=conf.threads, batch_size=conf.batch_size, shuffle=True)
     test_data_loader = DataLoader(
-            dataset=CarDataset('test', use_bbox=conf.use_bbox, length=conf.length,
+            dataset=CarDataset('test', use_bbox=conf.use_bbox, input_size=conf.input_size,
                                compress=conf.augment_size // 5),
             num_workers=conf.threads, batch_size=conf.batch_size, shuffle=True)
 
@@ -102,22 +96,19 @@ def main():
         model.apply(weights_init)
     else:
         start_i = load_checkpoints(model, conf.checkpoint_dir, conf.resume_step, conf.prefix)
-    print('===> Begin training at epoch {}'.format(start_i))
+    print('===> Begin training at epoch: {}'.format(start_i))
 
     # Optimizer
     # ----------------------------------------------------------------------------------------------------
     optimizer = optim.RMSprop(model.parameters(), lr=conf.learning_rate)
-    scheduler = ReduceLROnPlateau(optimizer, patience=100, cooldown=50, verbose=1, min_lr=1e-6)
 
     print('===> Number of params: {}'.format(sum([p.data.nelement() for p in model.parameters()])))
-    print('---> Learning rate: {} '.format(conf.learning_rate))
+    print('---> Initial learning rate: {:.0e} '.format(conf.learning_rate))
 
     # Loss
     # ----------------------------------------------------------------------------------------------------
-    class_weight = avg_class_weight(test_data_loader)
-    print('---> Rescaled class weights: {}'.format(class_weight.numpy().T))
-    if conf.cuda:
-        class_weight = class_weight.cuda()
+    class_weight = avg_class_weight(test_data_loader).cuda()
+    print('---> Rescaled class weights: {}'.format(class_weight.cpu().numpy().T))
 
     # Visdom
     # ----------------------------------------------------------------------------------------------------
@@ -136,14 +127,14 @@ def main():
         model.train()
 
         for partial_epoch, (image, label) in enumerate(train_data_loader, 1):
-            image, label = Variable(image).float(), Variable(label).float()
-            if conf.cuda:
-                image, label = image.cuda(), label.cuda()
+            image = Variable(image).float().cuda()
 
-            output, target = model(image), label
-            pred, true = flatten(output, target)
+            outputs, targets = model(image), multi_size(label, size=conf.loss_size)  # 2D cuda Variable
+            preds, trues = active_flatten(outputs, targets)  # 1D
 
-            loss = NLLLoss(class_weight)(output, target) + DiceLoss()(pred, true)
+            loss = NLLLoss(class_weight)(outputs, targets) + DiceLoss()(preds, trues)
+
+            pred, true = preds[0], trues[0]  # original size prediction
             accuracy, overlap = get_statictis(pred, true)
 
             # Accumulate gradients
@@ -180,15 +171,13 @@ def main():
         model.eval()
 
         for partial_epoch, (image, label) in enumerate(test_data_loader, 1):
-            image, label = Variable(image, volatile=True).float(), Variable(label, volatile=True).float()
-            if conf.cuda:
-                image, label = image.cuda(), label.cuda()
+            image = Variable(image, volatile=True).float().cuda()
 
-            output, target = model(image), label
-            pred, true = flatten(output, target)
+            outputs, targets = model(image), multi_size(label, size=conf.loss_size)  # 2D cuda Variable
+            preds, trues = active_flatten(outputs, targets)  # 1D
+            loss = NLLLoss(class_weight)(outputs, targets) + DiceLoss()(preds, trues)
 
-            loss = NLLLoss(class_weight)(output, target) + DiceLoss()(pred, true)
-
+            pred, true = preds[0], trues[0]  # original size prediction
             accuracy, overlap = get_statictis(pred, true)
 
             epoch_acc += accuracy
@@ -206,13 +195,14 @@ def main():
 
     best_result = 0
     for i in range(start_i, total_i + 1):
-        # optimizer = exp_lr_scheduler(optimizer, i, init_lr=conf.learning_rate, lr_decay_epoch=conf.lr_decay_epoch)
+        # ReduceLROnPlateau monitors validate loss: scheduler.step(val_results[0], i)
+        # MultiStepLR monitors epoch
+        optimizer = step_lr_scheduler(optimizer, i, milestones=[700, 1600],
+                                      init_lr=conf.learning_rate, instant=(start_i == i))
 
         # `results` contains [loss, acc, dice]
         *train_results, train_image, train_label, train_pred = train()
         *val_results, val_image, val_label, val_pred = validate()
-
-        scheduler.step(val_results[0], i)  # monitor validate loss
 
         # Visualize - scalar
         ev.vis_scalar(i, train_results, val_results)
@@ -226,8 +216,10 @@ def main():
 
         # Save checkpoints
         if i % 5 == 0:
-            is_best = val_results[-1] > best_result
-            best_result = max(val_results[-1], best_result)
+            temp_result = val_results[-1] + train_results[-1]
+            is_best = temp_result > best_result
+            best_result = max(temp_result, best_result)
+
             save_checkpoints(model, conf.checkpoint_dir, i, conf.prefix, is_best=is_best)
             # np.load('path/to/').item()
             np.save(os.path.join(conf.result_dir, 'results_dict.npy'), ev.results_dict)

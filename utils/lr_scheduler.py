@@ -4,19 +4,6 @@ import numpy as np
 from torch.optim import Optimizer
 
 
-def exp_lr_scheduler(optimizer, epoch, init_lr=0.0001, lr_decay_epoch=100):
-    """Decay learning rate by a factor of 0.1 every lr_decay_epoch epochs."""
-    lr = init_lr * (0.1 ** (epoch // lr_decay_epoch))
-
-    if epoch % lr_decay_epoch == 0:
-        print('===> ===> ===> Learning rate is set to {}'.format(lr))
-
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
-
-    return optimizer
-
-
 # Reference: https://github.com/Jiaming-Liu/pytorch-lr-scheduler/blob/master/lr_scheduler.py
 class ReduceLROnPlateau(object):
     """Reduce learning rate when a metric has stopped improving.
@@ -53,7 +40,7 @@ class ReduceLROnPlateau(object):
     """
 
     def __init__(self, optimizer, mode='min', factor=0.1, patience=10,
-                 verbose=0, epsilon=1e-4, cooldown=0, min_lr=0):
+                 verbose=0, epsilon=1e-4, cooldown=0, min_lr=0.0):
         super(ReduceLROnPlateau, self).__init__()
 
         if factor >= 1.0:
@@ -92,7 +79,7 @@ class ReduceLROnPlateau(object):
     def reset(self):
         self._reset()
 
-    def step(self, metrics, epoch):
+    def step(self, metrics):
         current = metrics
         if current is None:
             warnings.warn('Learning Rate Plateau Reducing requires metrics available!', RuntimeWarning)
@@ -113,10 +100,45 @@ class ReduceLROnPlateau(object):
                             new_lr = max(new_lr, self.min_lr)
                             param_group['lr'] = new_lr
                             if self.verbose > 0:
-                                print('\n===> ===> ===> Epoch {}: reducing learning rate to {}.'.format(epoch, new_lr))
+                                _show_learning_rate(new_lr)
                             self.cooldown_counter = self.cooldown
                             self.wait = 0
                 self.wait += 1
 
     def in_cooldown(self):
         return self.cooldown_counter > 0
+
+
+def auto_lr_scheduler(optimizer, patience=200, cooldown=100, verbose=1, min_lr=1e-6):
+    return ReduceLROnPlateau(optimizer, patience=patience, cooldown=cooldown, verbose=verbose, min_lr=min_lr)
+
+
+def step_lr_scheduler(optimizer, epoch, milestones=None, init_lr=0.0001, instant=False):
+    """Decay learning rate by a factor of 0.1 when epoch reaches milestones"""
+
+    if epoch in milestones or instant:
+        gamma = np.searchsorted(milestones, epoch + 1)
+        lr = init_lr * (0.1 ** gamma)
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
+        _show_learning_rate(lr)
+    return optimizer
+
+
+def exp_lr_scheduler(optimizer, epoch, init_lr=0.0001, lr_decay_epoch=100):
+    """Decay learning rate by a factor of 0.1 every lr_decay_epoch epochs."""
+    lr = init_lr * (0.1 ** (epoch // lr_decay_epoch))
+
+    if epoch % lr_decay_epoch == 0:
+        _show_learning_rate(lr)
+
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+
+    return optimizer
+
+
+def _show_learning_rate(lr):
+    print('*' * 60,
+          '     Learning rate is set to {:.0e}     '.format(lr).center(60, '*'),
+          '*' * 60, sep='\n')

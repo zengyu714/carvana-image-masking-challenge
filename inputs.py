@@ -14,13 +14,13 @@ from utils.image_ops import random_hsv, random_affine, random_hflip
 
 
 class CarDataset(data.Dataset):
-    def __init__(self, mode='train', use_bbox=False, fake_test_size=588, length=1024, compress=20):
+    def __init__(self, mode='train', use_bbox=False, input_size=(1024, 1024), compress=20, fake_test_size=588):
         super(CarDataset, self).__init__()
         self.mode = mode
         self.use_bbox = use_bbox
         if use_bbox:
             self.bbox = np.load('data/morph_train_boundingbox.npy').item()
-        self.length = [length] * 2
+        self.input_size = input_size
         self.compress = compress  # compress Dataloader size, for faster epoch
 
         self.data_path = sorted(glob.glob('data/train/*.jpg'))
@@ -42,7 +42,8 @@ class CarDataset(data.Dataset):
             bb = self.bbox[im_path[-19:]]
             image, label = [item[bb[0]: bb[2], bb[1]: bb[3]] for item in [image, label]]
 
-        image, label = [resize(item, self.length, preserve_range=True) for item in [image, label]]
+        if self.input_size != (1280, 1918):
+            image, label = [resize(item, self.input_size, preserve_range=True) for item in [image, label]]
 
         # Augment (mode: train)
         if self.mode == 'train':
@@ -56,10 +57,11 @@ class CarDataset(data.Dataset):
             image, label = random_hflip(image, label)
 
         # Convert to tensor: [1/3, height, width]
+        image = image.astype(np.float32) / 255
         label = np.expand_dims((label > 127).astype(np.uint8), -1)
-        image, label = [torch.from_numpy(item.transpose(2, 0, 1)) for item in [image, label]]
 
-        return image.div(255).float(), label
+        image, label = [torch.from_numpy(item.transpose(2, 0, 1)) for item in [image, label]]
+        return image, label
 
     def __len__(self):
         return len(self.image_path) // self.compress  # test
@@ -80,10 +82,13 @@ class SubmitCarDataset(data.Dataset):
     def __getitem__(self, idx):
         name = self.cars_name[idx]
         image = imread(self.root_dir + name)
+        if self.in_size != (1280, 1918):
+            resized = resize(image, self.in_size, mode='wrap', preserve_range=True)
 
-        resized = resize(image, self.in_size, mode='wrap', preserve_range=True)
+        resized = resized.astype(np.float32) / 255
         resized = torch.from_numpy(resized.transpose(2, 0, 1))
-        return image, resized.div(255), name
+
+        return image, resized, name
 
     def __len__(self):
         return len(self.cars_frame)
@@ -91,7 +96,7 @@ class SubmitCarDataset(data.Dataset):
 
 # test
 # --------------------------------------------------------------------------------------------------------------------
-class InputsTest():
+class InputsTest:
     def test_read_identity(self):
         images = read_identidy_car(to_identity(IMAGES_PATH[0]))
         labels = read_identidy_car(to_identity(LABELS_PATH[0]), data_dir='data/train_mask/')

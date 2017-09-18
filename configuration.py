@@ -3,7 +3,6 @@ import torch
 
 from utils.others import swap_format
 
-RESIZE = (1024, 1024)
 IM_SIZE = (1280, 1918)
 IMAGES_PATH = sorted(os.listdir('./data/train/'))
 LABELS_PATH = [swap_format(i) for i in IMAGES_PATH]
@@ -14,20 +13,22 @@ class Configuration:
         self.cuda = torch.cuda.is_available()
         self.cuda_device = cuda_device
 
-        self.batch_size = 16
+        self.batch_size = 4
         self.grad_acc_num = 8
         self.epochs = 30
         self.augment_size = 100
-        self.train_size = 4000
-        self.test_size = 1088
+        # self.train_size = 4000
+        # self.test_size = 1088
         self.learning_rate = 1e-4
-        self.lr_decay_epoch = 100
+        # self.lr_decay_epoch = 100
+        self.loss_size = 1
         self.seed = 714
         self.threads = 4
         self.resume_step = -1
         self.from_scratch = from_scratch
         self.prefix = prefix
         self.use_bbox = False
+        self.input_size = None
 
     def generate_dirs(self):
         self.result_dir = os.path.join('./results', self.prefix)
