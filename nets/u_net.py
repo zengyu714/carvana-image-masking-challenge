@@ -1,4 +1,4 @@
-from nets.layers import *
+from bluntools.layers import *
 
 """
 Maxpool and BilinearUpsample
@@ -10,7 +10,7 @@ class DeepUNet_128(nn.Module):
 
     def __init__(self):
         super(DeepUNet_128, self).__init__()
-        self.in_fit = nn.Sequential(ConvReLU(3, 32), ConvReLU(32, 32))
+        self.in_fit = nn.Sequential(ConvBNReLU(3, 32), ConvBNReLU(32, 32))
 
         self.lhs_1x = DownBlock(32, 64)
         self.lhs_2x = DownBlock(64, 128)
@@ -50,7 +50,7 @@ class DeepUMLs_128(nn.Module):
 
     def __init__(self):
         super(DeepUMLs_128, self).__init__()
-        self.in_fit = nn.Sequential(ConvReLU(3, 32), ConvReLU(32, 32))
+        self.in_fit = nn.Sequential(ConvBNReLU(3, 32), ConvBNReLU(32, 32))
 
         self.lhs_1x = DownBlock(32, 64)
         self.lhs_2x = DownBlock(64, 128)
@@ -95,7 +95,7 @@ class DeepUNet_HD(nn.Module):
 
     def __init__(self):
         super(DeepUNet_HD, self).__init__()
-        self.in_fit = nn.Sequential(ConvReLU(3, 4), ConvReLU(4, 4))
+        self.in_fit = nn.Sequential(ConvBNReLU(3, 4), ConvBNReLU(4, 4))
 
         self.lhs_1x = DownBlock(4, 8)
         self.lhs_2x = DownBlock(8, 16)
@@ -147,7 +147,7 @@ class DeepUMLs_HD(nn.Module):
 
     def __init__(self):
         super(DeepUMLs_HD, self).__init__()
-        self.in_fit = nn.Sequential(ConvReLU(3, 4), ConvReLU(4, 4))
+        self.in_fit = nn.Sequential(ConvBNReLU(3, 4), ConvBNReLU(4, 4))
 
         self.lhs_1x = DownBlock(4, 8)
         self.lhs_2x = DownBlock(8, 16)
@@ -205,13 +205,13 @@ class UNet_128(nn.Module):
     def __init__(self):
         super(UNet_128, self).__init__()
         # MaxPool
-        self.lhs_1x = nn.Sequential(ConvReLU(3, 128), ConvReLU(128, 128))
-        self.lhs_2x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(128, 256), ConvReLU(256, 256))
-        self.lhs_4x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(256, 512), ConvReLU(512, 512))
-        self.lhs_8x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(512, 1024), ConvReLU(1024, 1024))
+        self.lhs_1x = nn.Sequential(ConvBNReLU(3, 128), ConvBNReLU(128, 128))
+        self.lhs_2x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(128, 256), ConvBNReLU(256, 256))
+        self.lhs_4x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(256, 512), ConvBNReLU(512, 512))
+        self.lhs_8x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(512, 1024), ConvBNReLU(1024, 1024))
 
         # Bottom 16x <==> [batch_size, 3, 8, 8]
-        self.bottom = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(1024, 1024), ConvReLU(1024, 1024))
+        self.bottom = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(1024, 1024), ConvBNReLU(1024, 1024))
 
         # BilinearUp
         self.rhs_8x = UpConcat(1024, 1024)
@@ -244,14 +244,14 @@ class UNet_256(nn.Module):
     def __init__(self):
         super(UNet_256, self).__init__()
         # MaxPool
-        self.lhs_1x = nn.Sequential(ConvReLU(3, 64), ConvReLU(64, 64))
-        self.lhs_2x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(64, 128), ConvReLU(128, 128))
-        self.lhs_4x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(128, 256), ConvReLU(256, 256))
-        self.lhs_8x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(256, 512), ConvReLU(512, 512))
-        self.lhs_16x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(512, 1024), ConvReLU(1024, 1024))
+        self.lhs_1x = nn.Sequential(ConvBNReLU(3, 64), ConvBNReLU(64, 64))
+        self.lhs_2x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(64, 128), ConvBNReLU(128, 128))
+        self.lhs_4x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(128, 256), ConvBNReLU(256, 256))
+        self.lhs_8x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(256, 512), ConvBNReLU(512, 512))
+        self.lhs_16x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(512, 1024), ConvBNReLU(1024, 1024))
 
         # Bottom 32x <==> [batch_size, 3, 8, 8]
-        self.bottom = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(1024, 1024), ConvReLU(1024, 1024))
+        self.bottom = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(1024, 1024), ConvBNReLU(1024, 1024))
 
         # BilinearUp
         self.rhs_16x = UpConcat(1024, 1024)
@@ -287,14 +287,14 @@ class UNet_512(nn.Module):
     def __init__(self):
         super(UNet_512, self).__init__()
         # MaxPool
-        self.lhs_1x = nn.Sequential(ConvReLU(3, 64), ConvReLU(64, 64))
-        self.lhs_2x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(64, 128), ConvReLU(128, 128))
-        self.lhs_4x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(128, 256), ConvReLU(256, 256))
-        self.lhs_8x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(256, 512), ConvReLU(512, 512))
-        self.lhs_16x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(512, 1024), ConvReLU(1024, 1024))
+        self.lhs_1x = nn.Sequential(ConvBNReLU(3, 64), ConvBNReLU(64, 64))
+        self.lhs_2x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(64, 128), ConvBNReLU(128, 128))
+        self.lhs_4x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(128, 256), ConvBNReLU(256, 256))
+        self.lhs_8x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(256, 512), ConvBNReLU(512, 512))
+        self.lhs_16x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(512, 1024), ConvBNReLU(1024, 1024))
 
         # Bottom 32x <==> [batch_size, 3, 16, 16]
-        self.bottom = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(1024, 1024), ConvReLU(1024, 1024))
+        self.bottom = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(1024, 1024), ConvBNReLU(1024, 1024))
 
         # BilinearUp
         self.rhs_16x = UpConcat(1024, 1024)
@@ -330,15 +330,15 @@ class UNet_1024(nn.Module):
     def __init__(self):
         super(UNet_1024, self).__init__()
         # MaxPool
-        self.lhs_1x = nn.Sequential(ConvReLU(3, 8), ConvReLU(8, 8))
-        self.lhs_2x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(8, 16), ConvReLU(16, 16))
-        self.lhs_4x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(16, 32), ConvReLU(32, 32))
-        self.lhs_8x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(32, 64), ConvReLU(64, 64))
-        self.lhs_16x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(64, 128), ConvReLU(128, 128))
-        self.lhs_32x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(128, 256), ConvReLU(256, 256))
+        self.lhs_1x = nn.Sequential(ConvBNReLU(3, 8), ConvBNReLU(8, 8))
+        self.lhs_2x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(8, 16), ConvBNReLU(16, 16))
+        self.lhs_4x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(16, 32), ConvBNReLU(32, 32))
+        self.lhs_8x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(32, 64), ConvBNReLU(64, 64))
+        self.lhs_16x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(64, 128), ConvBNReLU(128, 128))
+        self.lhs_32x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(128, 256), ConvBNReLU(256, 256))
 
         # Bottom 64x <==> [batch_size, 3, 16, 16]
-        self.bottom = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(256, 512), ConvReLU(512, 512))
+        self.bottom = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(256, 512), ConvBNReLU(512, 512))
 
         # BilinearUp
         self.rhs_32x = UpConcat(512, 256)
@@ -377,15 +377,15 @@ class UNet_HD(nn.Module):
     def __init__(self):
         super(UNet_HD, self).__init__()
         # MaxPool
-        self.lhs_1x = nn.Sequential(ConvReLU(3, 8), ConvReLU(8, 8))
-        self.lhs_2x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(8, 16), ConvReLU(16, 16))
-        self.lhs_4x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(16, 32), ConvReLU(32, 32))
-        self.lhs_8x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(32, 64), ConvReLU(64, 64))
-        self.lhs_16x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(64, 128), ConvReLU(128, 128))
-        self.lhs_32x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(128, 256), ConvReLU(256, 256))
+        self.lhs_1x = nn.Sequential(ConvBNReLU(3, 8), ConvBNReLU(8, 8))
+        self.lhs_2x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(8, 16), ConvBNReLU(16, 16))
+        self.lhs_4x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(16, 32), ConvBNReLU(32, 32))
+        self.lhs_8x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(32, 64), ConvBNReLU(64, 64))
+        self.lhs_16x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(64, 128), ConvBNReLU(128, 128))
+        self.lhs_32x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(128, 256), ConvBNReLU(256, 256))
 
         # Bottom 64x <==> [batch_size, 3, 16, 16]
-        self.bottom = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(256, 512), ConvReLU(512, 512))
+        self.bottom = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(256, 512), ConvBNReLU(512, 512))
 
         # BilinearUp
         self.rhs_32x = UpConcat(512, 256)
@@ -424,17 +424,17 @@ class UNetReLU_128(nn.Module):
     def __init__(self, act=nn.ReLU()):
         super(UNet_128, self).__init__()
         # MaxPool
-        self.lhs_1x = nn.Sequential(ConvReLU(3, 128), ConvReLU(128, 128))
-        self.lhs_2x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(128, 256, relu=act),
-                                    ConvReLU(256, 256, relu=act))
-        self.lhs_4x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(256, 512, relu=act),
-                                    ConvReLU(512, 512, relu=act))
-        self.lhs_8x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(512, 1024, relu=act),
-                                    ConvReLU(1024, 1024, relu=act))
+        self.lhs_1x = nn.Sequential(ConvBNReLU(3, 128), ConvBNReLU(128, 128))
+        self.lhs_2x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(128, 256, relu=act),
+                                    ConvBNReLU(256, 256, relu=act))
+        self.lhs_4x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(256, 512, relu=act),
+                                    ConvBNReLU(512, 512, relu=act))
+        self.lhs_8x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(512, 1024, relu=act),
+                                    ConvBNReLU(1024, 1024, relu=act))
 
         # Bottom 16x <==> [batch_size, 3, 8, 8]
-        self.bottom = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(1024, 1024, relu=act),
-                                    ConvReLU(1024, 1024, relu=act))
+        self.bottom = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(1024, 1024, relu=act),
+                                    ConvBNReLU(1024, 1024, relu=act))
 
         # BilinearUp
         self.rhs_8x = UpConcat(1024, 1024)
@@ -467,15 +467,15 @@ class UNetUMLs_1024(nn.Module):
     def __init__(self):
         super(UNetUMLs_1024, self).__init__()
         # MaxPool
-        self.lhs_1x = nn.Sequential(ConvReLU(3, 8), ConvReLU(8, 8))
-        self.lhs_2x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(8, 16), ConvReLU(16, 16))
-        self.lhs_4x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(16, 32), ConvReLU(32, 32))
-        self.lhs_8x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(32, 64), ConvReLU(64, 64))
-        self.lhs_16x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(64, 128), ConvReLU(128, 128))
-        self.lhs_32x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(128, 256), ConvReLU(256, 256))
+        self.lhs_1x = nn.Sequential(ConvBNReLU(3, 8), ConvBNReLU(8, 8))
+        self.lhs_2x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(8, 16), ConvBNReLU(16, 16))
+        self.lhs_4x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(16, 32), ConvBNReLU(32, 32))
+        self.lhs_8x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(32, 64), ConvBNReLU(64, 64))
+        self.lhs_16x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(64, 128), ConvBNReLU(128, 128))
+        self.lhs_32x = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(128, 256), ConvBNReLU(256, 256))
 
         # Bottom 64x <==> [batch_size, 3, 16, 16]
-        self.bottom = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvReLU(256, 512), ConvReLU(512, 512))
+        self.bottom = nn.Sequential(nn.MaxPool2d(2, stride=2), ConvBNReLU(256, 512), ConvBNReLU(512, 512))
 
         # BilinearUp
         self.rhs_32x = UpConcat(512, 256)

@@ -11,9 +11,9 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
 from inputs import SubmitCarDataset
-from utils.image_ops import dense_crf
-from nets.u_net import UNet_1024, UNet_128, DeepUNet_128
-from nets.atrous import Atrous_1024, AtrousMultiLoss_1024, Atrous_128
+from bluntools.image_ops import dense_crf
+from nets.atrous import UNetAtrous_HD, SCutAtrous_HD
+from nets.u_net import DeepUNet_128, DeepUNet_HD
 
 import visdom
 
@@ -36,7 +36,7 @@ def rle_encode_faster(mask):
     return rle
 
 
-def submit(model, model_name, device_id=1, use_crf=False):
+def submit(model, model_name, device_id=0, use_crf=False):
     torch.cuda.set_device(device_id)
 
     best_path = 'checkpoints/{}/{}_best.pth'.format(model_name, model_name)
@@ -47,7 +47,7 @@ def submit(model, model_name, device_id=1, use_crf=False):
     model.load_state_dict(best_model)
 
     submit_dataset = SubmitCarDataset(input_size=INPUT_SIZE)
-    dataloader = DataLoader(submit_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
+    dataloader = DataLoader(submit_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=4)
 
     rles = []
     names = []
@@ -114,11 +114,17 @@ def validate_rle_timeit():
 
 
 if __name__ == '__main__':
-    model = DeepUNet_128()
-    model_name = 'DeepUNet_128'
-    INPUT_SIZE = [int(model_name.split('_')[-1])] * 2
+    model = UNetAtrous_HD()
+    model_name = 'UNetAtrous_HD'
+
     IMAGE_SIZE = (1280, 1918)
     BATCH_SIZE = 16
+
+    if model_name.endswith('HD'):
+        INPUT_SIZE = IMAGE_SIZE
+        BATCH_SIZE = 4
+    else:
+        INPUT_SIZE = [int(model_name.split('_')[-1])] * 2
 
     submit(model, model_name, device_id=3)
 

@@ -3,7 +3,6 @@ import argparse
 import numpy as np
 
 import torch
-import torch.nn as nn
 import torch.optim as optim
 
 from torch.autograd import Variable
@@ -11,14 +10,13 @@ from torch.utils.data import DataLoader
 
 from inputs import CarDataset
 from configuration import Configuration
-from nets.u_net import DeepUNet_128, DeepUMLs_128, DeepUNet_HD, DeepUMLs_HD
-from nets.atrous import DeepAtrous_128, DeepAtrous_HD
-from nets.resnet import ResNeXt_128, DualPath_128
-from nets.layers import weights_init, active_flatten, multi_size, avg_class_weight, get_statictis, pre_visdom, \
+from nets.u_net import DeepUNet_128, DeepUNet_HD
+from nets.atrous import SCutAtrous_128, UNetAtrous_128, UNetAtrous_HD, SCutAtrous_HD, DeepAtrous_HD
+from bluntools.layers import weights_init, active_flatten, multi_size, avg_class_weight, get_statistic, pre_visdom, \
     DiceLoss, NLLLoss
-from utils.easy_visdom import EasyVisdom
-from utils.lr_scheduler import auto_lr_scheduler, step_lr_scheduler
-from utils.checkpoints import load_checkpoints, save_checkpoints
+from bluntools.easy_visdom import EasyVisdom
+from bluntools.lr_scheduler import auto_lr_scheduler, step_lr_scheduler
+from bluntools.checkpoints import load_checkpoints, save_checkpoints
 
 parser = argparse.ArgumentParser(description='Carvana Image Masking Challenge')
 parser.add_argument('-n', '--from-scratch', action='store_true',
@@ -44,26 +42,22 @@ def main():
     # Set models
     # --------------------------------------------------------------------------------------------------------
     if args.architecture == 0:
-        conf.prefix = 'DeepUNet_HD'
+        conf.prefix = 'UNetAtrous_HD'
         conf.input_size = (1280, 1918)
-        model = DeepUNet_HD()
+        model = UNetAtrous_HD()
     elif args.architecture == 1:
+        conf.prefix = 'SCutAtrous_HD'
+        conf.input_size = (1280, 1918)
+        model = SCutAtrous_HD()
+
+    elif args.architecture == 2:
         conf.prefix = 'DeepAtrous_HD'
         conf.input_size = (1280, 1918)
+        conf.batch_size = 2
         model = DeepAtrous_HD()
-    elif args.architecture == 2:
-        conf.prefix = 'DeepUNet_128'
-        model = DeepUNet_128()
     elif args.architecture == 3:
-        conf.prefix = 'DeepAtrous_128'
-        model = DeepAtrous_128()
-
-    elif args.architecture == 4:
-        conf.prefix = 'ResNeXt_128'
-        model = ResNeXt_128()
-    elif args.architecture == 5:
-        conf.prefix = 'DualPath_128'
-        model = DualPath_128()
+        conf.prefix = 'UNetAtrous_128'
+        model = UNetAtrous_128()
 
     conf.generate_dirs()
 
@@ -82,12 +76,12 @@ def main():
 
     # actual epochs == conf.augment_size * conf.epochs / compress = 100 * 10 / (100 / 5) =  50
     train_data_loader = DataLoader(
-            dataset=CarDataset('train', use_bbox=conf.use_bbox, input_size=conf.input_size,
-                               compress=conf.augment_size // 5),
+            dataset=CarDataset('train', input_size=conf.input_size, compress=conf.augment_size // 5,
+                               use_bbox=conf.use_bbox, use_gta=True),
             num_workers=conf.threads, batch_size=conf.batch_size, shuffle=True)
     test_data_loader = DataLoader(
-            dataset=CarDataset('test', use_bbox=conf.use_bbox, input_size=conf.input_size,
-                               compress=conf.augment_size // 5),
+            dataset=CarDataset('test', use_bbox=conf.use_bbox, compress=conf.augment_size // 5,
+                               input_size=conf.input_size, use_gta=True),
             num_workers=conf.threads, batch_size=conf.batch_size, shuffle=True)
 
     # Weights
@@ -101,6 +95,7 @@ def main():
     # Optimizer
     # ----------------------------------------------------------------------------------------------------
     optimizer = optim.RMSprop(model.parameters(), lr=conf.learning_rate)
+    scheduler = auto_lr_scheduler(optimizer, patience=150, cooldown=70, verbose=1, min_lr=1e-10)
 
     print('===> Number of params: {}'.format(sum([p.data.nelement() for p in model.parameters()])))
     print('---> Initial learning rate: {:.0e} '.format(conf.learning_rate))
@@ -130,12 +125,12 @@ def main():
             image = Variable(image).float().cuda()
 
             outputs, targets = model(image), multi_size(label, size=conf.loss_size)  # 2D cuda Variable
-            preds, trues = active_flatten(outputs, targets)  # 1D
+            preds, trues, probs = active_flatten(outputs, targets)  # 1D
 
-            loss = NLLLoss(class_weight)(outputs, targets) + DiceLoss()(preds, trues)
+            loss = NLLLoss(class_weight)(outputs, targets) + DiceLoss()(probs, trues)
 
             pred, true = preds[0], trues[0]  # original size prediction
-            accuracy, overlap = get_statictis(pred, true)
+            accuracy, overlap = get_statistic(pred, true)
 
             # Accumulate gradients
             # >>> if partial_epoch == 0:
@@ -155,8 +150,7 @@ def main():
             epoch_loss += loss.data[0]
             epoch_overlap += overlap
 
-        avg_loss, avg_acc, avg_dice = np.array(
-                [epoch_loss, epoch_acc, epoch_overlap]) / partial_epoch
+        avg_loss, avg_acc, avg_dice = np.array([epoch_loss, epoch_acc, epoch_overlap]) / partial_epoch
         print_format = [avg_loss, avg_acc, avg_dice]
         print('===> Training step {} ({}/{})\t'.format(i, i // conf.augment_size + 1, conf.epochs),
               'Loss: {:.5f}   Accuracy: {:.5f}  |   Dice Overlap: {:.5f}'.format(*print_format))
@@ -174,11 +168,11 @@ def main():
             image = Variable(image, volatile=True).float().cuda()
 
             outputs, targets = model(image), multi_size(label, size=conf.loss_size)  # 2D cuda Variable
-            preds, trues = active_flatten(outputs, targets)  # 1D
-            loss = NLLLoss(class_weight)(outputs, targets) + DiceLoss()(preds, trues)
+            preds, trues, probs = active_flatten(outputs, targets)  # 1D
+            loss = NLLLoss(class_weight)(outputs, targets) + DiceLoss()(probs, trues)
 
             pred, true = preds[0], trues[0]  # original size prediction
-            accuracy, overlap = get_statictis(pred, true)
+            accuracy, overlap = get_statistic(pred, true)
 
             epoch_acc += accuracy
             epoch_loss += loss.data[0]
@@ -195,14 +189,16 @@ def main():
 
     best_result = 0
     for i in range(start_i, total_i + 1):
-        # ReduceLROnPlateau monitors validate loss: scheduler.step(val_results[0], i)
-        # MultiStepLR monitors epoch
-        optimizer = step_lr_scheduler(optimizer, i, milestones=[700, 1600],
-                                      init_lr=conf.learning_rate, instant=(start_i == i))
+        # MultiStepLR monitors: epoch
+        # optimizer = step_lr_scheduler(optimizer, i, milestones=[800, 1000, 1500],
+        #                               init_lr=conf.learning_rate, instant=(start_i == i))
 
         # `results` contains [loss, acc, dice]
         *train_results, train_image, train_label, train_pred = train()
         *val_results, val_image, val_label, val_pred = validate()
+
+        # ReduceLROnPlateau monitors: validate loss
+        scheduler.step(val_results[0])
 
         # Visualize - scalar
         ev.vis_scalar(i, train_results, val_results)

@@ -10,20 +10,26 @@ import torch
 import torch.utils.data as data
 
 from utils.others import swap_format
-from utils.image_ops import random_hsv, random_affine, random_hflip
+from bluntools.image_ops import random_hsv, random_affine, random_hflip
 
 
 class CarDataset(data.Dataset):
-    def __init__(self, mode='train', use_bbox=False, input_size=(1024, 1024), compress=20, fake_test_size=588):
+    def __init__(self, mode='train', input_size=(1024, 1024), compress=20, fake_test_size=588,
+                 use_bbox=False, use_gta=False):
         super(CarDataset, self).__init__()
         self.mode = mode
+        self.input_size = input_size
+        self.compress = compress  # compress Dataloader size, for faster epoch
         self.use_bbox = use_bbox
         if use_bbox:
             self.bbox = np.load('data/morph_train_boundingbox.npy').item()
-        self.input_size = input_size
-        self.compress = compress  # compress Dataloader size, for faster epoch
 
         self.data_path = sorted(glob.glob('data/train/*.jpg'))
+        if use_gta:
+            self.data_path += sorted(glob.glob('data/gta_train/*.jpg'))
+            fake_test_size *= 2
+            compress *= 2
+
         np.random.shuffle(self.data_path)
         # FULL size training
         self.train_path, self.test_path = self.data_path, self.data_path[-fake_test_size:]
@@ -82,7 +88,10 @@ class SubmitCarDataset(data.Dataset):
     def __getitem__(self, idx):
         name = self.cars_name[idx]
         image = imread(self.root_dir + name)
-        if self.in_size != (1280, 1918):
+
+        if self.in_size == (1280, 1918):
+            resized = image
+        else:
             resized = resize(image, self.in_size, mode='wrap', preserve_range=True)
 
         resized = resized.astype(np.float32) / 255

@@ -1,15 +1,19 @@
 import os
+import glob
+import cv2
 import numpy as np
+
+from tqdm import tqdm
 from scipy.ndimage import imread
 from skimage.transform import rescale, resize
 
 
-def png_to_png(mask_dir='./data/train_mask'):
+def rename(data_dir='./data/gta_train_masks'):
     old_dir = os.getcwd()
-    os.chdir(mask_dir)
+    os.chdir(data_dir)
 
     for i in os.listdir('.'):
-        os.rename(i, i.replace('gif', 'png'))
+        os.rename(i, i.replace('.png', '_masks.png'))
 
     os.chdir(old_dir)
 
@@ -54,3 +58,34 @@ def read_identidy_car(images_id, data_dir='./data/train/', scale=0.5):
             images += [im]
 
     return np.array(images)
+
+
+def save_resized_gta_vanilla(data_path):
+    for p in tqdm(data_path):
+        im = cv2.imread(p)
+        resized = resize(im, (1280, 1918), preserve_range=True)
+        cv2.imwrite(p, resized)
+
+
+"""Parallelize resize loops"""
+from joblib import Parallel, delayed
+
+
+def save_resized_gta(p):
+    """ Write resized image to disk.
+    Arguments:
+        p: image path to read
+    """
+    im = cv2.imread(p)
+    resized = resize(im, (1280, 1918), preserve_range=True)
+    cv2.imwrite(p, resized)
+
+
+def joblib_loop(data_path='data/gta_train/*.jpg'):
+    images_path = glob.glob(data_path)
+    Parallel(n_jobs=24)(delayed(save_resized_gta)(p) for p in tqdm(images_path))
+
+
+if __name__ == '__main__':
+    joblib_loop(data_path='data/gta_train/*.jpg')
+    joblib_loop(data_path='data/gta_train_masks/*.png')

@@ -15,7 +15,7 @@ class Configuration:
 
         self.batch_size = 4
         self.grad_acc_num = 8
-        self.epochs = 30
+        self.epochs = 70
         self.augment_size = 100
         # self.train_size = 4000
         # self.test_size = 1088
